@@ -19,8 +19,8 @@ A beginner-friendly Python project to simulate and visualize real-time stock pri
 
 ### 1. Clone the Repository
 ```
-git clone <your-repo-url>
-cd <project-folder>
+git clone https://github.com/DhaatuTheGamer/real-time-financial-market-simulator
+cd real-time-financial-market-simulator
 ```
 
 ### 2. Set Up Python Virtual Environment
