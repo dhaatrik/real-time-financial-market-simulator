@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "real-time-financial-market-simulator"
+version = "0.2.0"
+description = "A real-time financial market simulator using Geometric Brownian Motion."
+authors = [{ name = "Dhaatrik Chowdhury" }]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.0",
+    "pandas>=2.0",
+    "requests>=2.28",
+    "streamlit>=1.18",
+    "websockets>=12.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "flake8>=7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/dhaatrik/real-time-financial-market-simulator"
+Repository = "https://github.com/dhaatrik/real-time-financial-market-simulator"
+Issues = "https://github.com/dhaatrik/real-time-financial-market-simulator/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["market_simulator*"]
+
+[tool.pytest.ini_options]
+testpaths = ["market_simulator/tests"]

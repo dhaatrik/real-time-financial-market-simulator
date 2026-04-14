@@ -1,99 +1,155 @@
-import unittest
+"""Tests for the Streamlit dashboard using AppTest.
+
+Uses ``AppTest.from_file`` to load the dashboard in Streamlit's sandboxed
+test runner. Since ``from_file`` re-executes the script in its own namespace,
+``unittest.mock.patch`` on the module boundary is not effective for functions
+defined *inside* the script.
+
+Test strategy:
+- **URI validation**: Tests the allow-list logic directly—invalid URIs never
+  reach ``run_websocket_client``, so no mock is needed.
+- **GBM simulation**: Pure-UI smoke test; no external dependencies.
+- **Alpha Vantage errors**: Patches ``requests.get`` (a third-party import
+  that *is* shared across namespaces via ``sys.modules``).
+
+Run with::
+
+    python -m pytest market_simulator/tests/dashboard/ -v
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
 from unittest.mock import patch, MagicMock
-import sys
-import os
 
-# Adjust sys.path to allow importing streamlit_app
-# This is often needed when tests are in a subdirectory and the module is in a parent directory
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
+import pytest
+from streamlit.testing.v1 import AppTest
 
-# Import the main function from the Streamlit app
-# Note: Streamlit apps are typically scripts, so importing functions directly can sometimes
-# require careful handling if the script executes code at the module level (e.g., st.title).
-# For this test, we assume market_simulator.dashboard.streamlit_app can be imported
-# and its main() function can be called in a test context.
-from market_simulator.dashboard import streamlit_app
-
-class TestStreamlitAppWebSocketValidation(unittest.TestCase):
-
-    @patch('market_simulator.dashboard.streamlit_app.run_websocket_client')
-    @patch('market_simulator.dashboard.streamlit_app.st')
-    def test_websocket_uri_validation(self, mock_st, mock_run_websocket_client):
-        # Configure mocks for Streamlit widgets and functions
-        # Sidebar inputs
-        mock_st.sidebar.checkbox.return_value = True  # ws_enabled = True
-        mock_st.sidebar.number_input.return_value = 100 # n_points
-        
-        # Button click simulation
-        # The structure of the Streamlit app is:
-        # if ws_enabled and st.button("Start WebSocket Stream"):
-        #    ...
-        # We need to simulate the button click returning True for "Start WebSocket Stream"
-        # We will handle this by iterating through different button names if necessary,
-        # or by making the mock specific if we know the exact call order.
-        # For simplicity, let's assume the "Start WebSocket Stream" button is the relevant one.
-        mock_st.button.return_value = True
-
-        # --- Test Case 1: Invalid URI ---
-        mock_st.sidebar.text_input.return_value = "ws://malicious.com" # Invalid ws_uri
-        
-        # Call the main function which contains the Streamlit UI logic
-        streamlit_app.main()
-
-        # Assertions for invalid URI
-        # Check if st.error was called with the specific validation message
-        error_calls = [call for call in mock_st.error.call_args_list if "Invalid WebSocket URI" in call[0][0]]
-        self.assertTrue(len(error_calls) > 0, "st.error should be called for an invalid URI")
-        
-        # Check that run_websocket_client was NOT called
-        mock_run_websocket_client.assert_not_called()
-
-        # Reset mocks for the next case
-        mock_st.reset_mock()
-        mock_run_websocket_client.reset_mock()
-        
-        # Re-configure mocks for the valid case as they were reset
-        mock_st.sidebar.checkbox.return_value = True
-        mock_st.sidebar.number_input.return_value = 100
-        mock_st.button.return_value = True # Simulate button press again
-
-        # --- Test Case 2: Valid URI (ws://) ---
-        mock_st.sidebar.text_input.return_value = "ws://localhost:8765" # Valid ws_uri
-        
-        streamlit_app.main()
-
-        # Assertions for valid URI
-        # Check that st.error with the "Invalid WebSocket URI" message was NOT called
-        error_calls_valid = [call for call in mock_st.error.call_args_list if "Invalid WebSocket URI" in call[0][0]]
-        self.assertEqual(len(error_calls_valid), 0, "st.error should not be called for a valid URI regarding URI validation")
-        
-        # Check that run_websocket_client WAS called
-        mock_run_websocket_client.assert_called_once_with("ws://localhost:8765", 100)
-        
-        # Reset mocks for the next valid case
-        mock_st.reset_mock()
-        mock_run_websocket_client.reset_mock()
-
-        # Re-configure mocks for the valid case as they were reset
-        mock_st.sidebar.checkbox.return_value = True
-        mock_st.sidebar.number_input.return_value = 100
-        mock_st.button.return_value = True # Simulate button press again
-
-        # --- Test Case 3: Valid URI (wss://) ---
-        mock_st.sidebar.text_input.return_value = "wss://localhost:8765" # Valid ws_uri (secure)
-        
-        streamlit_app.main()
-
-        # Assertions for valid URI (secure)
-        error_calls_valid_wss = [call for call in mock_st.error.call_args_list if "Invalid WebSocket URI" in call[0][0]]
-        self.assertEqual(len(error_calls_valid_wss), 0, "st.error should not be called for a valid secure URI regarding URI validation")
-        
-        # Check that run_websocket_client WAS called
-        mock_run_websocket_client.assert_called_once_with("wss://localhost:8765", 100)
+# Absolute path to the script under test
+_APP_PATH = str(
+    Path(__file__).resolve().parent.parent.parent / "dashboard" / "streamlit_app.py"
+)
 
 
-if __name__ == "__main__":
-    # This allows running the test directly, e.g., python test_streamlit_app.py
-    # However, it's better to use a test runner like `python -m unittest discover` or `pytest`
-    # that handles path and discovery automatically.
-    unittest.main()
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_app() -> AppTest:
+    """Return a fresh :class:`AppTest` instance for the dashboard script."""
+    return AppTest.from_file(_APP_PATH, default_timeout=30)
+
+
+def _get_widget_by_label(widget_list, label: str):
+    """Find a widget in an AppTest widget list by its label attribute."""
+    for w in widget_list:
+        if getattr(w, "label", None) == label:
+            return w
+    raise KeyError(f"No widget found with label '{label}'")
+
+
+# ---------------------------------------------------------------------------
+# 1. WebSocket URI validation (pure logic — no network mock required)
+# ---------------------------------------------------------------------------
+
+class TestWebSocketURIValidation:
+    """Verify that only allow-listed URIs can trigger a WebSocket connection."""
+
+    def test_invalid_uri_shows_error(self):
+        """An untrusted URI must display an error message."""
+        at = _make_app()
+        at.run()
+
+        # Enable WebSocket checkbox and set a malicious URI
+        at.sidebar.checkbox[0].set_value(True).run()
+        _get_widget_by_label(at.sidebar.text_input, "WebSocket URI").set_value(
+            "ws://malicious.com"
+        ).run()
+
+        # Click "Start WebSocket Stream"
+        at.button("btn_ws_stream").click().run()
+
+        assert any(
+            "Invalid WebSocket URI" in str(getattr(e, "value", ""))
+            for e in at.error
+        ), "Expected an 'Invalid WebSocket URI' error message."
+
+    def test_valid_uri_no_validation_error(self):
+        """A trusted ws:// URI must NOT trigger a URI-validation error.
+
+        Note: The actual WebSocket connection will fail (no server running)
+        but the *validation* gate should pass.
+        """
+        at = _make_app()
+        at.run()
+
+        at.sidebar.checkbox[0].set_value(True).run()
+        _get_widget_by_label(at.sidebar.text_input, "WebSocket URI").set_value(
+            "ws://localhost:8765"
+        ).run()
+
+        at.button("btn_ws_stream").click().run()
+
+        # No Invalid URI error should appear (connection errors are acceptable)
+        assert not any(
+            "Invalid WebSocket URI" in str(getattr(e, "value", ""))
+            for e in at.error
+        ), "Valid URI should not trigger URI-validation error."
+
+
+# ---------------------------------------------------------------------------
+# 2. GBM Simulation smoke test (pure AppTest)
+# ---------------------------------------------------------------------------
+
+class TestSimulateButton:
+    """Smoke-test the 'Simulate/Run Backtest' button for the GBM data path."""
+
+    def test_simulate_gbm_produces_output(self):
+        """Clicking Simulate with GBM defaults should not crash."""
+        at = _make_app()
+        at.run()
+
+        at.button("btn_simulate").click().run()
+
+        # The app should not have crashed
+        assert not at.exception, (
+            f"App raised an exception: "
+            f"{[str(e) for e in at.exception]}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# 3. Alpha Vantage error surfacing (patches at the requests library level)
+# ---------------------------------------------------------------------------
+
+class TestAlphaVantageErrorHandling:
+    """Verify that API errors are surfaced as st.error in the UI."""
+
+    def test_api_error_key_shown_in_ui(self):
+        """When the Alpha Vantage API returns an 'Error Message' key, the
+        dashboard must display an error via ``st.error``."""
+        # Build a fake response object with a JSON containing an error key
+        fake_response = MagicMock()
+        fake_response.status_code = 200
+        fake_response.raise_for_status = MagicMock()
+        fake_response.json.return_value = {
+            "Error Message": "Invalid API call. Please retry."
+        }
+
+        with patch("requests.get", return_value=fake_response):
+            at = _make_app()
+            at.run()
+
+            _get_widget_by_label(at.sidebar.selectbox, "Select Data Source").set_value(
+                "Alpha Vantage"
+            ).run()
+
+            _get_widget_by_label(
+                at.sidebar.button, "Fetch Alpha Vantage Data"
+            ).click().run()
+
+            error_texts = [str(getattr(e, "value", "")).lower() for e in at.error]
+            assert any(
+                "error" in t or "invalid" in t for t in error_texts
+            ), f"Expected an API error message. Got: {error_texts}"

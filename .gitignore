@@ -4,8 +4,15 @@ __pycache__/
 *.pyo
 *.pyd
 
+# Distribution / packaging
+*.egg-info/
+*.egg
+dist/
+build/
+
 # Virtual environment
 venv/
+.venv/
 
 # Environment variables
 .env
@@ -14,9 +21,15 @@ venv/
 .streamlit/
 .ipynb_checkpoints/
 
+# Testing / caching
+.pytest_cache/
+.coverage
+htmlcov/
+
 # OS files
 .DS_Store
 Thumbs.db
 
-# VSCode
+# IDEs
 .vscode/
+.idea/
