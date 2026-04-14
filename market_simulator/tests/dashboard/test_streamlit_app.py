@@ -19,11 +19,9 @@ Run with::
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-import pytest
 from streamlit.testing.v1 import AppTest
 
 # Absolute path to the script under test
