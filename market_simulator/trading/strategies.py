@@ -76,11 +76,11 @@ class MovingAverageStrategy(TradingStrategy):
 
         # Use .loc to avoid SettingWithCopyWarning
         signals.loc[
-            signals.index[self.short_window :],
+            signals.index[self.short_window:],
             "signal",
         ] = np.where(
-            signals["short_mavg"].iloc[self.short_window :]
-            > signals["long_mavg"].iloc[self.short_window :],
+            signals["short_mavg"].iloc[self.short_window:]
+            > signals["long_mavg"].iloc[self.short_window:],
             1.0,
             0.0,
         )

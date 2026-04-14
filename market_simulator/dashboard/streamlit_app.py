@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # WebSocket streaming — background-thread approach (no event-loop leaks)
 # ---------------------------------------------------------------------------
 
+
 def _ws_worker(uri: str, n_points: int, price_queue: "queue.Queue[float | None]") -> None:
     """Background thread target: opens a WebSocket, reads ``n_points`` prices,
     pushes each onto *price_queue*, then enqueues ``None`` as a sentinel.
