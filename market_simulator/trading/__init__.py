@@ -1,1 +1,1 @@
-# trading subpackage
+"""Trading strategies and backtesting subpackage."""
