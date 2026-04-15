@@ -16,9 +16,10 @@
 
 <p align="center">
   <a href="https://github.com/dhaatrik/real-time-financial-market-simulator/actions/workflows/ci.yml"><img src="https://github.com/dhaatrik/real-time-financial-market-simulator/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11+">
-  <img src="https://img.shields.io/badge/streamlit-1.18+-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white" alt="Streamlit">
-  <img src="https://img.shields.io/badge/license-MIT-green?style=for-the-badge" alt="MIT License">
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white" alt="Python 3.11+"></a>
+  <a href="https://streamlit.io/"><img src="https://img.shields.io/badge/streamlit-1.18+-FF4B4B?logo=streamlit&logoColor=white" alt="Streamlit"></a>
+  <a href="https://github.com/dhaatrik/real-time-financial-market-simulator/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
+  <a href="https://github.com/dhaatrik/real-time-financial-market-simulator/releases"><img src="https://img.shields.io/badge/version-0.3.0-blue" alt="Version 0.3.0"></a>
 </p>
 
 ---
@@ -146,13 +147,15 @@ options:
 ### Use as a Python Library
 
 ```python
+from market_simulator.constants import GBMConfig
 from market_simulator.gbm import GeometricBrownianMotion
 from market_simulator.trading.strategies import MovingAverageStrategy
 from market_simulator.trading.backtester import Backtester
 import pandas as pd
 
-# Simulate 252 trading days of prices
-gbm = GeometricBrownianMotion(S0=100, mu=0.05, sigma=0.2, T=1, dt=1/252)
+# Validate parameters with Pydantic and simulate 252 trading days
+config = GBMConfig(S0=100, mu=0.05, sigma=0.2, T=1, dt=1/252)
+gbm = GeometricBrownianMotion(config=config)
 prices = gbm.simulate()
 
 # Wrap in a DataFrame and run a Moving Average strategy
@@ -175,18 +178,21 @@ print(bt.calculate_performance())
 real-time-financial-market-simulator/
 ├── market_simulator/
 │   ├── __init__.py
+│   ├── constants.py              # Pydantic models & enums (GBMConfig, StrategyType)
 │   ├── gbm.py                    # Vectorized GBM simulation engine
 │   ├── utils.py                  # Sync & async rate-limiting decorators
 │   ├── websocket_server.py       # CLI-configurable WebSocket price server
 │   ├── dashboard/
 │   │   └── streamlit_app.py      # Interactive Streamlit dashboard
 │   ├── data/
-│   │   └── alpha_vantage.py      # Alpha Vantage API client with error handling
+│   │   └── alpha_vantage.py      # Alpha Vantage API client (httpx, sync + async)
 │   ├── trading/
 │   │   ├── __init__.py
 │   │   ├── strategies.py         # MA crossover & RSI strategy implementations
 │   │   └── backtester.py         # Vectorized backtester with performance metrics
 │   └── tests/
+│       ├── test_gbm.py           # Quantitative GBM tests (Monte Carlo + validation)
+│       ├── test_strategies.py    # Deterministic strategy signal tests
 │       └── dashboard/
 │           └── test_streamlit_app.py  # AppTest-based dashboard tests
 ├── pyproject.toml                # PEP 517 build config & project metadata
@@ -204,11 +210,12 @@ real-time-financial-market-simulator/
 | **Language** | Python 3.11+ | Core language |
 | **Simulation** | NumPy | Vectorized GBM price path generation |
 | **Data** | Pandas | DataFrames for price series, signals, and returns |
+| **Validation** | Pydantic | Strict parameter validation via `GBMConfig` |
 | **Dashboard** | Streamlit | Interactive web UI with charts and controls |
 | **Streaming** | websockets | Async WebSocket server for live price feeds |
 | **Market Data** | Alpha Vantage API | Real-world stock and forex data |
-| **HTTP** | Requests | API communication with timeout and error handling |
-| **Testing** | pytest + Streamlit AppTest | Unit and integration testing |
+| **HTTP** | httpx | Sync + async API client with timeout handling |
+| **Testing** | pytest + Streamlit AppTest | Unit, quantitative, and integration testing |
 | **Packaging** | setuptools (PEP 517) | Editable installs via `pyproject.toml` |
 
 ---
@@ -227,6 +234,9 @@ python -m pytest market_simulator/tests/ -v --tb=short
 
 **Test coverage includes:**
 
+- **GBM statistical tests** — Monte Carlo terminal mean vs theory, output shape, all-positive prices
+- **Pydantic validation** — rejects negative volatility, zero time horizon, negative prices
+- **Strategy signal tests** — deterministic MA crossover and RSI overbought/oversold verification
 - **WebSocket URI validation** — verifies that only allow-listed URIs can initiate a connection
 - **GBM simulation smoke test** — confirms the dashboard renders without exceptions
 - **Alpha Vantage error surfacing** — ensures API errors are displayed to the user via `st.error`

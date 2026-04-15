@@ -1,7 +1,16 @@
-"""Alpha Vantage API integration module."""
+"""Alpha Vantage API integration module.
+
+Provides both synchronous and asynchronous HTTP clients via ``httpx``.
+The sync API is suitable for Streamlit's ``@st.cache_data`` decorator,
+while the async API enables concurrent portfolio-level data fetching
+inside an ``asyncio`` event loop.
+"""
+
+from __future__ import annotations
 
 import os
-import requests
+
+import httpx
 
 
 class AlphaVantageError(Exception):
@@ -12,7 +21,7 @@ class AlphaVantage:
     """Thin wrapper around the Alpha Vantage REST API.
 
     API credentials are read from the ``ALPHA_VANTAGE_API_KEY`` environment
-    variable when not supplied directly. All requests include a 10-second
+    variable when not supplied directly.  All requests include a 10-second
     timeout to prevent indefinite hangs on slow or dropped connections.
 
     Args:
@@ -22,11 +31,11 @@ class AlphaVantage:
     Raises:
         AlphaVantageError: When the API returns a rate-limit notice, an error
             message, or any other non-data JSON payload.
-        requests.exceptions.Timeout: When the HTTP request exceeds 10 seconds.
-        requests.exceptions.RequestException: For any other network-level error.
+        httpx.TimeoutException: When the HTTP request exceeds 10 seconds.
+        httpx.HTTPStatusError: For any non-2xx HTTP response.
     """
 
-    _REQUEST_TIMEOUT: int = 10  # seconds
+    _REQUEST_TIMEOUT: float = 10.0  # seconds
 
     def __init__(self, api_key: str | None = None) -> None:
         self.api_key: str | None = api_key or os.getenv("ALPHA_VANTAGE_API_KEY")
@@ -35,31 +44,6 @@ class AlphaVantage:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
-    def _get(self, params: dict) -> dict:
-        """Make a GET request and validate the JSON response.
-
-        Args:
-            params: Query parameters to pass to the Alpha Vantage endpoint.
-
-        Returns:
-            The parsed JSON payload as a ``dict``.
-
-        Raises:
-            AlphaVantageError: If the response contains an API-level error or
-                rate-limit notice instead of the expected data structure.
-            requests.exceptions.Timeout: If the request exceeds
-                :attr:`_REQUEST_TIMEOUT` seconds.
-        """
-        response = requests.get(
-            self.base_url,
-            params=params,
-            timeout=self._REQUEST_TIMEOUT,
-        )
-        response.raise_for_status()
-        data: dict = response.json()
-        self._check_api_errors(data)
-        return data
 
     @staticmethod
     def _check_api_errors(data: dict) -> None:
@@ -90,8 +74,31 @@ class AlphaVantage:
             )
 
     # ------------------------------------------------------------------
-    # Public API
+    # Synchronous API (for Streamlit / @st.cache_data)
     # ------------------------------------------------------------------
+
+    def _get(self, params: dict) -> dict:
+        """Make a synchronous GET request and validate the JSON response.
+
+        Args:
+            params: Query parameters to pass to the Alpha Vantage endpoint.
+
+        Returns:
+            The parsed JSON payload as a ``dict``.
+
+        Raises:
+            AlphaVantageError: If the response contains an API-level error.
+            httpx.TimeoutException: If the request exceeds the timeout.
+        """
+        response = httpx.get(
+            self.base_url,
+            params=params,
+            timeout=self._REQUEST_TIMEOUT,
+        )
+        response.raise_for_status()
+        data: dict = response.json()
+        self._check_api_errors(data)
+        return data
 
     def get_stock_data(
         self,
@@ -107,10 +114,6 @@ class AlphaVantage:
 
         Returns:
             The full parsed JSON response from Alpha Vantage.
-
-        Raises:
-            AlphaVantageError: On API-level errors or rate-limit notices.
-            requests.exceptions.Timeout: If the network request times out.
         """
         params: dict = {
             "function": function,
@@ -135,10 +138,6 @@ class AlphaVantage:
 
         Returns:
             The full parsed JSON response from Alpha Vantage.
-
-        Raises:
-            AlphaVantageError: On API-level errors or rate-limit notices.
-            requests.exceptions.Timeout: If the network request times out.
         """
         params: dict = {
             "function": function,
@@ -147,3 +146,55 @@ class AlphaVantage:
             "apikey": self.api_key,
         }
         return self._get(params)
+
+    # ------------------------------------------------------------------
+    # Asynchronous API (for concurrent portfolio fetching)
+    # ------------------------------------------------------------------
+
+    async def _aget(self, params: dict) -> dict:
+        """Make an asynchronous GET request and validate the JSON response.
+
+        Args:
+            params: Query parameters to pass to the Alpha Vantage endpoint.
+
+        Returns:
+            The parsed JSON payload as a ``dict``.
+
+        Raises:
+            AlphaVantageError: If the response contains an API-level error.
+            httpx.TimeoutException: If the request exceeds the timeout.
+        """
+        async with httpx.AsyncClient(timeout=self._REQUEST_TIMEOUT) as client:
+            response = await client.get(self.base_url, params=params)
+        response.raise_for_status()
+        data: dict = response.json()
+        self._check_api_errors(data)
+        return data
+
+    async def aget_stock_data(
+        self,
+        symbol: str,
+        function: str = "TIME_SERIES_DAILY",
+    ) -> dict:
+        """Async version of :meth:`get_stock_data`."""
+        params: dict = {
+            "function": function,
+            "symbol": symbol,
+            "apikey": self.api_key,
+        }
+        return await self._aget(params)
+
+    async def aget_forex_data(
+        self,
+        from_currency: str,
+        to_currency: str,
+        function: str = "CURRENCY_EXCHANGE_RATE",
+    ) -> dict:
+        """Async version of :meth:`get_forex_data`."""
+        params: dict = {
+            "function": function,
+            "from_currency": from_currency,
+            "to_currency": to_currency,
+            "apikey": self.api_key,
+        }
+        return await self._aget(params)
