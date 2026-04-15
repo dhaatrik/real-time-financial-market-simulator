@@ -9,4 +9,4 @@ Repository: https://github.com/dhaatrik/real-time-financial-market-simulator
 """
 
 __author__ = "Dhaatrik Chowdhury"
-__version__ = "0.2.0"
+__version__ = "0.3.0"
